@@ -1,25 +1,25 @@
 import os
 import psycopg2
-from dotenv import load_dotenv
 from flask import Flask, redirect, url_for, session, render_template_string, request, flash
 from authlib.integrations.flask_client import OAuth
+from dotenv import load_dotenv
+
+# ==============================
+# CARGA DE CONFIGURACIÓN
+# ==============================
+# Intentamos cargar desde env.env (para desarrollo local)
+if os.path.exists("env.env"):
+    load_dotenv("env.env")
 
 app = Flask(__name__)
 
-# ==============================
-# CONFIGURACIÓN
-# ==============================
-
-load_dotenv('env.env') 
-
+# Jalamos las variables de entorno (En Render se configuran en el Dashboard)
+app.secret_key = os.getenv("SECRET_KEY", "CLAVE_POR_DEFECTO_BACANA_2026")
 DATABASE_URL = os.getenv("DATABASE_URL")
-app.secret_key = os.getenv("SECRET_KEY")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
-app.secret_key = "CLAVE_SUPER_LARGA_Y_ALEATORIA_2026_CAMBIAR_EN_PRODUCCION"
-
-GOOGLE_CLIENT_ID = "966775310840-78j9h1djoobjsbff5qd2n00va59cmljs.apps.googleusercontent.com"
-GOOGLE_CLIENT_SECRET = "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"
-
+# Configuración de cookies para producción
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -27,10 +27,20 @@ app.config.update(
 )
 
 # ==============================
+# CONEXIÓN A NEON (POSTGRESQL)
+# ==============================
+def get_db_connection():
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except Exception as e:
+        print(f"Error conectando a la base de datos: {e}")
+        return None
+
+# ==============================
 # OAUTH GOOGLE
 # ==============================
 oauth = OAuth(app)
-
 google = oauth.register(
     name="google",
     client_id=GOOGLE_CLIENT_ID,
@@ -42,43 +52,21 @@ google = oauth.register(
 )
 
 # ==============================
-# HTML
+# HTML TEMPLATES (In-line)
 # ==============================
 HTML_HOME = """
 <!doctype html>
 <html lang="es">
-<head>
-    <meta charset="utf-8">
-    <title>Inicio</title>
-</head>
+<head><meta charset="utf-8"><title>Inicio</title></head>
 <body>
-    <h1>Login con Google en Flask</h1>
-
+    <h1>App Pokémon con Google y Neon</h1>
     {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <ul style="color: green;">
-          {% for msg in messages %}
-            <li>{{ msg }}</li>
-          {% endfor %}
-        </ul>
-      {% endif %}
+      {% if messages %}<ul style="color: blue;">{% for msg in messages %}<li>{{ msg }}</li>{% endfor %}</ul>{% endif %}
     {% endwith %}
-
-    {% if user %}
-        <h2 style="color: green;">✅ Usuario autenticado con Google</h2>
-        <p><b>Nombre:</b> {{ user.get("name", "N/A") }}</p>
-        <p><b>Correo:</b> {{ user.get("email", "N/A") }}</p>
-        <p><b>Correo verificado:</b> {{ user.get("email_verified", False) }}</p>
-
-        {% if user.get("picture") %}
-            <p><img src="{{ user.get('picture') }}" width="100" alt="Foto de perfil"></p>
-        {% endif %}
-
-        <p><a href="{{ url_for('privado') }}">Ir a zona privada</a></p>
-        <p><a href="{{ url_for('logout') }}">Cerrar sesión</a></p>
+    {% if session.user %}
+        <p>Hola, {{ session.user.name }}! <a href="{{ url_for('privado') }}">Ir a zona privada</a></p>
     {% else %}
-        <p>No has iniciado sesión.</p>
-        <p><a href="{{ url_for('login') }}">Iniciar sesión con Google</a></p>
+        <a href="{{ url_for('login') }}">Iniciar sesión con Google</a>
     {% endif %}
 </body>
 </html>
@@ -87,44 +75,21 @@ HTML_HOME = """
 HTML_PRIVADO = """
 <!doctype html>
 <html lang="es">
-<head>
-    <meta charset="utf-8">
-    <title>Zona privada</title>
-</head>
+<head><meta charset="utf-8"><title>Zona Privada</title></head>
 <body>
-    <h1>Zona privada</h1>
-
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <ul style="color: blue;">
-          {% for msg in messages %}
-            <li>{{ msg }}</li>
-          {% endfor %}
-        </ul>
-      {% endif %}
-    {% endwith %}
-
-    <p>Has iniciado sesión como: <b>{{ user.get("email", "N/A") }}</b></p>
-    <p>Nombre: <b>{{ user.get("name", "N/A") }}</b></p>
-    <p style="color: green;"><b>Mensaje:</b> Usuario autenticado correctamente con Google.</p>
-
+    <h1>Bienvenido, {{ user.name }}</h1>
+    <img src="{{ user.picture }}" width="50"><br>
+    <p>Email: {{ user.email }}</p>
+    
     <hr>
-    <h3>Enviar mensaje simple</h3>
-    <form method="post" action="{{ url_for('enviar_mensaje') }}">
-        <label>Escribe un mensaje:</label><br><br>
-        <input type="text" name="mensaje" style="width: 300px;" required>
-        <button type="submit">Enviar</button>
-    </form>
-
-    {% if ultimo_mensaje %}
-        <p style="margin-top:20px; color: darkred;">
-            <b>Último mensaje enviado por {{ user.get("name", "N/A") }}:</b>
-            {{ ultimo_mensaje }}
-        </p>
-    {% endif %}
-
-    <p><a href="{{ url_for('home') }}">Volver al inicio</a></p>
-    <p><a href="{{ url_for('logout') }}">Cerrar sesión</a></p>
+    <h3>Lista de Usuarios Pokémon (Desde Neon)</h3>
+    <ul>
+    {% for p en pokemones %}
+        <li>ID: {{ p[0] }} - Usuario: <b>{{ p[1] }}</b></li>
+    {% endfor %}
+    </ul>
+    
+    <a href="{{ url_for('logout') }}">Cerrar sesión</a>
 </body>
 </html>
 """
@@ -132,48 +97,29 @@ HTML_PRIVADO = """
 # ==============================
 # RUTAS
 # ==============================
-
-def test_db():
-    try:
-        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-        print("¡Conectao a la base de datos de los Pokémon, cuadro!")
-        conn.close()
-    except Exception as e:
-        print(f"Lío con la conexión: {e}")
-
-test_db()
-
 @app.route("/")
 def home():
-    user = session.get("user")
-    return render_template_string(HTML_HOME, user=user)
+    return render_template_string(HTML_HOME)
 
 @app.route("/login")
 def login():
-    redirect_uri = "https://web-pg59.onrender.com/callback"
+    # En Render, asegúrate que esta URL coincida con la de Google Cloud
+    redirect_uri = url_for("auth_callback", _external=True)
     return google.authorize_redirect(redirect_uri)
 
 @app.route("/callback")
 def auth_callback():
     try:
         token = google.authorize_access_token()
-        user_info = token.get("userinfo")
-
-        if not user_info:
-            resp = google.get("https://openidconnect.googleapis.com/v1/userinfo")
-            user_info = resp.json()
-
+        user_info = google.parse_id_token(token, nonce=None)
         session["user"] = {
             "sub": user_info.get("sub"),
             "name": user_info.get("name"),
             "email": user_info.get("email"),
-            "email_verified": user_info.get("email_verified"),
             "picture": user_info.get("picture"),
         }
-
-        flash("Autenticación exitosa. Bienvenido/a.")
+        flash("¡Autenticación exitosa, cuadro!")
         return redirect(url_for("privado"))
-
     except Exception as e:
         return f"Error en autenticación: {str(e)}", 500
 
@@ -181,38 +127,25 @@ def auth_callback():
 def privado():
     user = session.get("user")
     if not user:
-        return redirect(url_for("login"))
-
-    ultimo_mensaje = session.get("ultimo_mensaje")
-    return render_template_string(
-        HTML_PRIVADO,
-        user=user,
-        ultimo_mensaje=ultimo_mensaje
-    )
-
-@app.route("/enviar-mensaje", methods=["POST"])
-def enviar_mensaje():
-    user = session.get("user")
-    if not user:
-        return redirect(url_for("login"))
-
-    mensaje = request.form.get("mensaje", "").strip()
-    if not mensaje:
-        flash("Debes escribir un mensaje.")
-        return redirect(url_for("privado"))
-
-    session["ultimo_mensaje"] = mensaje
-    flash(f'Mensaje enviado por {user.get("name", "Usuario")}.')
-    return redirect(url_for("privado"))
+        return redirect(url_for("home"))
+    
+    # Consultamos los Pokémon de la DB
+    conn = get_db_connection()
+    pokemones = []
+    if conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, username FROM users ORDER BY id ASC LIMIT 20;")
+        pokemones = cur.fetchall()
+        cur.close()
+        conn.close()
+    
+    return render_template_string(HTML_PRIVADO, user=user, pokemones=pokemones)
 
 @app.route("/logout")
 def logout():
     session.clear()
-    flash("Sesión cerrada correctamente.")
+    flash("Sesión cerrada. ¡Vemos!")
     return redirect(url_for("home"))
 
-# ==============================
-# MAIN
-# ==============================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(debug=True)
