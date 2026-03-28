@@ -1,4 +1,6 @@
-
+import os
+import psycopg2
+from dotenv import load_dotenv
 from flask import Flask, redirect, url_for, session, render_template_string, request, flash
 from authlib.integrations.flask_client import OAuth
 
@@ -7,7 +9,11 @@ app = Flask(__name__)
 # ==============================
 # CONFIGURACIÓN
 # ==============================
-load_dotenv('env.env')
+
+load_dotenv('env.env') 
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+app.secret_key = os.getenv("SECRET_KEY")
 
 app.secret_key = "CLAVE_SUPER_LARGA_Y_ALEATORIA_2026_CAMBIAR_EN_PRODUCCION"
 
