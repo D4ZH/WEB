@@ -1,28 +1,64 @@
-from flask import Flask, request, redirect, url_for, session, render_template_string
+import os
+import psycopg2
+from flask import Flask, request, redirect, url_for, session, render_template_string, flash
+from dotenv import load_dotenv
+
+# ==============================
+# CONFIGURACIÓN
+# ==============================
+if os.path.exists("env.env"):
+    load_dotenv("env.env")
 
 app = Flask(__name__)
-app.secret_key = "CLAVE_FIJA_DE_PRUEBA_2026"
+app.secret_key = os.getenv("SECRET_KEY", "CLAVE_POR_DEFECTO_2026")
 
-USUARIO_PRUEBA = "demo"
-CLAVE_PRUEBA = "demo123"
+DATABASE_URL = os.getenv("DATABASE_URL")
 
+IS_PRODUCTION = os.getenv("RENDER", False)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=bool(IS_PRODUCTION)
+)
+
+# ==============================
+# CONEXIÓN A NEON
+# ==============================
+def get_db_connection():
+    try:
+        # psycopg2 no soporta channel_binding, lo removemos si viene en la URL
+        clean_url = DATABASE_URL.replace("&channel_binding=require", "").replace("?channel_binding=require", "")
+        conn = psycopg2.connect(clean_url)
+        return conn
+    except Exception as e:
+        print(f"Error conectando a la base de datos: {e}")
+        return None
+
+# ==============================
+# TEMPLATES
+# ==============================
 HTML_HOME = """
 <!doctype html>
 <html lang="es">
-<head>
-    <meta charset="utf-8">
-    <title>Inicio</title>
-</head>
+<head><meta charset="utf-8"><title>Inicio</title></head>
 <body>
-    <h1>App web simple en Flask</h1>
+    <h1>Bienvenido</h1>
 
-    {% if "usuario" in session %}
-        <p>Bienvenido, {{ session["usuario"] }}</p>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul style="color: green;">
+          {% for msg in messages %}<li>{{ msg }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    {% if session.usuario %}
+        <p>Hola, <b>{{ session.usuario }}</b>!</p>
         <p><a href="{{ url_for('privado') }}">Ir a zona privada</a></p>
         <p><a href="{{ url_for('logout') }}">Cerrar sesión</a></p>
     {% else %}
         <p>No has iniciado sesión.</p>
-        <p><a href="{{ url_for('login') }}">Ir a login</a></p>
+        <p><a href="{{ url_for('login') }}">Iniciar sesión</a></p>
     {% endif %}
 </body>
 </html>
@@ -31,15 +67,12 @@ HTML_HOME = """
 HTML_LOGIN = """
 <!doctype html>
 <html lang="es">
-<head>
-    <meta charset="utf-8">
-    <title>Login</title>
-</head>
+<head><meta charset="utf-8"><title>Login</title></head>
 <body>
     <h1>Iniciar sesión</h1>
 
     {% if error %}
-        <p style="color:red;">{{ error }}</p>
+        <p style="color: red;">{{ error }}</p>
     {% endif %}
 
     <form method="post">
@@ -47,7 +80,7 @@ HTML_LOGIN = """
         <input type="text" name="username" required><br><br>
 
         <label>Contraseña:</label><br>
-        <input type="password" name="password" required><br><br>
+        <input type="password" name="clave" required><br><br>
 
         <button type="submit">Entrar</button>
     </form>
@@ -61,13 +94,10 @@ HTML_LOGIN = """
 HTML_PRIVADO = """
 <!doctype html>
 <html lang="es">
-<head>
-    <meta charset="utf-8">
-    <title>Zona privada</title>
-</head>
+<head><meta charset="utf-8"><title>Zona Privada</title></head>
 <body>
     <h1>Zona privada</h1>
-    <p>Has iniciado sesión como: <b>{{ session["usuario"] }}</b></p>
+    <p>Sesión activa como: <b>{{ session.usuario }}</b></p>
     <p>Este contenido solo lo ve un usuario autenticado.</p>
     <p><a href="{{ url_for('logout') }}">Cerrar sesión</a></p>
     <p><a href="{{ url_for('home') }}">Volver al inicio</a></p>
@@ -75,6 +105,9 @@ HTML_PRIVADO = """
 </html>
 """
 
+# ==============================
+# RUTAS
+# ==============================
 @app.route("/")
 def home():
     return render_template_string(HTML_HOME)
@@ -85,13 +118,31 @@ def login():
 
     if request.method == "POST":
         username = request.form.get("username", "").strip()
-        password = request.form.get("password", "").strip()
+        clave = request.form.get("clave", "").strip()
 
-        if username == USUARIO_PRUEBA and password == CLAVE_PRUEBA:
-            session["usuario"] = username
-            return redirect(url_for("privado"))
+        conn = get_db_connection()
+        if not conn:
+            error = "No se pudo conectar a la base de datos. Intenta más tarde."
         else:
-            error = "Usuario o contraseña incorrectos"
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT id FROM users WHERE username = %s AND clave = %s;",
+                    (username, clave)
+                )
+                user = cur.fetchone()
+                cur.close()
+                conn.close()
+
+                if user:
+                    session["usuario"] = username
+                    flash(f"Bienvenido, {username}!")
+                    return redirect(url_for("privado"))
+                else:
+                    error = "Usuario o contraseña incorrectos."
+            except Exception as e:
+                error = f"Error consultando la base de datos: {e}"
+                print(error)
 
     return render_template_string(HTML_LOGIN, error=error)
 
@@ -104,7 +155,8 @@ def privado():
 @app.route("/logout")
 def logout():
     session.clear()
+    flash("Sesión cerrada correctamente.")
     return redirect(url_for("home"))
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(debug=True)
