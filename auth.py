@@ -126,6 +126,17 @@ HTML_PRIVADO = """
 # ==============================
 # RUTAS
 # ==============================
+
+def test_db():
+    try:
+        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        print("¡Conectao a la base de datos de los Pokémon, cuadro!")
+        conn.close()
+    except Exception as e:
+        print(f"Lío con la conexión: {e}")
+
+test_db()
+
 @app.route("/")
 def home():
     user = session.get("user")
