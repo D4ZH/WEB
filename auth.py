@@ -150,7 +150,7 @@ def home():
 
 @app.route("/login")
 def login():
-    redirect_uri = "https://web-2-b92f.onrender.com/callback"
+    redirect_uri = "https://web-pg59.onrender.com/callback"
     return google.authorize_redirect(redirect_uri)
 
 @app.route("/callback")
