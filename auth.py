@@ -7,6 +7,8 @@ app = Flask(__name__)
 # ==============================
 # CONFIGURACIÓN
 # ==============================
+load_dotenv('env.env')
+
 app.secret_key = "CLAVE_SUPER_LARGA_Y_ALEATORIA_2026_CAMBIAR_EN_PRODUCCION"
 
 GOOGLE_CLIENT_ID = "966775310840-78j9h1djoobjsbff5qd2n00va59cmljs.apps.googleusercontent.com"
